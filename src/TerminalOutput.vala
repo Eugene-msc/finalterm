@@ -182,6 +182,10 @@ public class TerminalOutput : Gee.ArrayList<OutputLine> {
 						// Application Cursor Keys
 						terminal_modes |= TerminalMode.CURSOR;
 						break;
+					case 1049:
+						// Use alternate buffer
+						terminal.terminal_view.terminal_output_view.set_mode(true);
+						break;
 					default:
 						print_interpretation_status(stream_element, InterpretationStatus.UNSUPPORTED);
 						break;
@@ -195,6 +199,10 @@ public class TerminalOutput : Gee.ArrayList<OutputLine> {
 					case 1:
 						// Normal Cursor Keys
 						terminal_modes &= ~TerminalMode.CURSOR;
+						break;
+					case 1049:
+						// Use normal buffer
+						terminal.terminal_view.terminal_output_view.set_mode(false);
 						break;
 					default:
 						print_interpretation_status(stream_element, InterpretationStatus.UNSUPPORTED);

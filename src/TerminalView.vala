@@ -135,6 +135,7 @@ public class TerminalOutputView : Mx.ScrollView {
 	private GtkClutter.Embed clutter_embed;
 
 	private LineContainer line_container;
+	private LineContainer alternate_line_container;
 
 	private Mx.Label cursor;
 	private Clutter.PropertyTransition blinking_animation;
@@ -146,11 +147,14 @@ public class TerminalOutputView : Mx.ScrollView {
 
 	private Gee.Set<int> updated_lines = new Gee.HashSet<int>();
 
+	private bool alternate = false;
+
 	public TerminalOutputView(Terminal terminal, GtkClutter.Embed clutter_embed) {
 		this.terminal = terminal;
 		this.clutter_embed = clutter_embed;
 
 		line_container = new LineContainer();
+		alternate_line_container = new LineContainer();
 		add(line_container);
 
 		// Initial synchronization with model
@@ -244,15 +248,32 @@ public class TerminalOutputView : Mx.ScrollView {
 		}
 	}
 
+	public void set_mode(bool alternate) {
+		if (this.alternate != alternate) {
+			this.alternate = alternate;
+			if (alternate) {
+				remove_child(line_container);
+				add_child(alternate_line_container);				
+			} else {
+				remove_child(alternate_line_container);
+				alternate_line_container.clear();
+				add_child(line_container);
+			}
+			add_line_views();
+			updated_lines.clear();
+		}
+	}
+
 	// Expands the list of line views until it contains as many elements as the model
 	public void add_line_views() {
-		for (int i = line_container.get_line_count(); i < terminal.terminal_output.size; i++) {
-			var line_view = new LineView(terminal.terminal_output[i], line_container);
+		LineContainer lc = alternate?alternate_line_container:line_container;
+		for (int i = lc.get_line_count(); i < terminal.terminal_output.size; i++) {
+			var line_view = new LineView(terminal.terminal_output[i], lc);
 			line_view.collapsed.connect(on_line_view_collapsed);
 			line_view.expanded.connect(on_line_view_expanded);
 			line_view.text_menu_element_hovered.connect(on_line_view_text_menu_element_hovered);
 
-			line_container.add_line_view(line_view);
+			lc.add_line_view(line_view);
 		}
 
 		// Note that this suffices to ensure scrolling space is always in sync with the model,
@@ -261,22 +282,24 @@ public class TerminalOutputView : Mx.ScrollView {
 	}
 
 	private void on_line_view_collapsed(LineView line_view) {
-		for (int i = line_container.get_line_view_index(line_view) + 1;
-				i < line_container.get_line_count(); i++) {
-			if (line_container.get_line_view(i).is_prompt_line)
+		LineContainer lc = alternate?alternate_line_container:line_container;
+		for (int i = lc.get_line_view_index(line_view) + 1;
+				i < lc.get_line_count(); i++) {
+			if (lc.get_line_view(i).is_prompt_line)
 				break;
 
-			line_container.get_line_view(i).visible = false;
+			lc.get_line_view(i).visible = false;
 		}
 	}
 
 	private void on_line_view_expanded(LineView line_view) {
-		for (int i = line_container.get_line_view_index(line_view) + 1;
-				i < line_container.get_line_count(); i++) {
-			if (line_container.get_line_view(i).is_prompt_line)
+		LineContainer lc = alternate?alternate_line_container:line_container;
+		for (int i = lc.get_line_view_index(line_view) + 1;
+				i < lc.get_line_count(); i++) {
+			if (lc.get_line_view(i).is_prompt_line)
 				break;
 
-			line_container.get_line_view(i).visible = true;
+			lc.get_line_view(i).visible = true;
 		}
 	}
 
@@ -329,10 +352,10 @@ public class TerminalOutputView : Mx.ScrollView {
 
 	private void render_terminal_text() {
 		terminal.terminal_output.print_transient_text();
-
+		LineContainer lc = alternate?alternate_line_container:line_container;
 		foreach (var i in updated_lines) {
 			terminal.terminal_output[i].optimize();
-			line_container.get_line_view(i).render_line();
+			lc.get_line_view(i).render_line();
 		}
 
 		updated_lines.clear();
@@ -385,9 +408,10 @@ public class TerminalOutputView : Mx.ScrollView {
 	}
 
 	private bool position_terminal_cursor(bool animate) {
+		LineContainer lc = alternate?alternate_line_container:line_container;
 		TerminalOutput.CursorPosition cursor_position = terminal.terminal_output.cursor_position;
 
-		if (!is_active || cursor_position.line >= line_container.get_line_count()) {
+		if (!is_active || cursor_position.line >= lc.get_line_count()) {
 			cursor.hide();
 			return false;
 		}
@@ -414,15 +438,17 @@ public class TerminalOutputView : Mx.ScrollView {
 	}
 
 	private void adjust_scrolling_space() {
+		LineContainer lc = alternate?alternate_line_container:line_container;
 		int additional_lines = terminal.terminal_output.screen_offset +
 				terminal.lines - terminal.terminal_output.size;
 		double scrolling_space = additional_lines * Settings.get_default().character_height;
 
-		line_container.set_scrolling_space(scrolling_space);
+		lc.set_scrolling_space(scrolling_space);
 	}
 
 	public void scroll_to_position(TerminalOutput.CursorPosition position = {-1, -1}) {
-		if (position.line >= line_container.get_line_count())
+		LineContainer lc = alternate?alternate_line_container:line_container;
+		if (position.line >= lc.get_line_count())
 			return;
 
 		var geometry = Clutter.Geometry();
@@ -439,7 +465,7 @@ public class TerminalOutputView : Mx.ScrollView {
 			// NOTE: line_container.get_line_view(position.line).get_geometry() does not work here
 			//       because the layout manager takes over positioning
 			// TODO: Is that still true?
-			var allocation_box = line_container.get_line_view(position.line).get_allocation_box();
+			var allocation_box = lc.get_line_view(position.line).get_allocation_box();
 			// TODO: This does not take the column into account
 			geometry.x      = (int)allocation_box.get_x();
 			geometry.y      = (int)allocation_box.get_y();
@@ -451,11 +477,13 @@ public class TerminalOutputView : Mx.ScrollView {
 	}
 
 	private void get_position_coordinates(TerminalOutput.CursorPosition position, out int x, out int y) {
-		line_container.get_line_view(position.line).get_character_coordinates(position.column, out x, out y);
+		LineContainer lc = alternate?alternate_line_container:line_container;
+		lc.get_line_view(position.line).get_character_coordinates(position.column, out x, out y);
 	}
 
 	private void get_stage_position(TerminalOutput.CursorPosition position, out int? x, out int? y) {
-		if (position.line >= line_container.get_line_count()) {
+		LineContainer lc = alternate?alternate_line_container:line_container;
+		if (position.line >= lc.get_line_count()) {
 			x = null;
 			y = null;
 			return;
@@ -463,7 +491,7 @@ public class TerminalOutputView : Mx.ScrollView {
 
 		float line_view_x;
 		float line_view_y;
-		line_container.get_line_view(position.line).get_transformed_position(out line_view_x, out line_view_y);
+		lc.get_line_view(position.line).get_transformed_position(out line_view_x, out line_view_y);
 
 		int character_x;
 		int character_y;
@@ -474,7 +502,8 @@ public class TerminalOutputView : Mx.ScrollView {
 	}
 
 	public void get_screen_position(TerminalOutput.CursorPosition position, out int? x, out int? y) {
-		if (position.line >= line_container.get_line_count()) {
+		LineContainer lc = alternate?alternate_line_container:line_container;
+		if (position.line >= lc.get_line_count()) {
 			x = null;
 			y = null;
 			return;
@@ -482,7 +511,7 @@ public class TerminalOutputView : Mx.ScrollView {
 
 		int line_view_x;
 		int line_view_y;
-		Utilities.get_actor_screen_position(clutter_embed, line_container.get_line_view(position.line),
+		Utilities.get_actor_screen_position(clutter_embed, lc.get_line_view(position.line),
 				out line_view_x, out line_view_y);
 
 		int character_x;
@@ -597,6 +626,10 @@ public class LineContainer : Clutter.Actor, Mx.Scrollable {
 		//              of children already present in the LineContainer
 		//              (cf. https://mail.gnome.org/archives/clutter-list/2013-September/msg00005.html)
 		insert_child_at_index(line_view, -1);
+	}
+
+	public void clear() {
+		line_views = new Gee.ArrayList<LineView>();
 	}
 
 	public LineView get_line_view(int index) {
